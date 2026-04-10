@@ -1,0 +1,60 @@
+import type { PubDevPackage } from "@/types";
+
+export const pubdevPackages: PubDevPackage[] = [
+  {
+    name: "bond_form",
+    version: "0.0.4+4",
+    pubPoints: 140,
+    likes: 5,
+    description: "Convenient form handling with support for Riverpod and GetX state management",
+    url: "https://pub.dev/packages/bond_form",
+  },
+  {
+    name: "bond_cache",
+    version: "0.0.4+4",
+    pubPoints: 140,
+    likes: 3,
+    description: "Handles caching across multiple platforms",
+    url: "https://pub.dev/packages/bond_cache",
+  },
+  {
+    name: "bond_network",
+    version: "0.0.11+11",
+    pubPoints: 150,
+    likes: 4,
+    description: "Manages API responses with declarative networking",
+    url: "https://pub.dev/packages/bond_network",
+  },
+  {
+    name: "bond_notifications",
+    version: "0.1.0",
+    pubPoints: 140,
+    likes: 2,
+    description: "Enables notification handling across Flutter platforms",
+    url: "https://pub.dev/packages/bond_notifications",
+  },
+  {
+    name: "bond_app_analytics",
+    version: "0.0.3",
+    pubPoints: 140,
+    likes: 2,
+    description: "Logs analytics events with Dart and Flutter SDK compatibility",
+    url: "https://pub.dev/packages/bond_app_analytics",
+  },
+  {
+    name: "bond_core",
+    version: "0.0.5",
+    pubPoints: 145,
+    likes: 3,
+    description: "Foundational library supporting Android, iOS, Linux, macOS, Web, and Windows",
+    url: "https://pub.dev/packages/bond_core",
+  },
+  {
+    name: "bond_socialite",
+    version: "0.0.2",
+    pubPoints: 130,
+    likes: 1,
+    description: "Easy integration of social logins (Google, Apple)",
+    url: "https://pub.dev/packages/bond_socialite",
+  },
+];
