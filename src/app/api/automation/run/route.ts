@@ -1,28 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { logRunStart, logRunEnd, markRunNotified } from "@/lib/db";
-import { getAgentBus } from "@/agents/base/agent-bus";
-import { JobMatcherAIAgent } from "@/agents/ai/job-matcher-ai-agent";
-import { ResumeAIAgent } from "@/agents/ai/resume-ai-agent";
-import { ContentAIAgent } from "@/agents/ai/content-ai-agent";
-import { GitHubAIAgent } from "@/agents/ai/github-ai-agent";
-import { LinkedInAIAgent } from "@/agents/ai/linkedin-ai-agent";
-import type { AIAgent } from "@/agents/base/ai-agent";
-
-// Lazily initialized AI agents for API route
-let agents: Map<string, AIAgent> | null = null;
-
-function getAgents(): Map<string, AIAgent> {
-  if (agents) return agents;
-
-  const bus = getAgentBus();
-  agents = new Map();
-  agents.set("job-matcher", new JobMatcherAIAgent(bus));
-  agents.set("resume", new ResumeAIAgent(bus));
-  agents.set("content", new ContentAIAgent(bus));
-  agents.set("github", new GitHubAIAgent(bus));
-  agents.set("linkedin", new LinkedInAIAgent(bus));
-  return agents;
-}
+import { initAgents } from "@/agents/bootstrap";
 
 // Map schedule IDs to agent + mode
 const MODE_MAP: Record<string, { agentKey: string; mode?: string }> = {
@@ -53,7 +31,7 @@ export async function POST(request: NextRequest) {
   const runId = logRunStart(agentId);
 
   try {
-    const allAgents = getAgents();
+    const allAgents = initAgents();
     const agent = allAgents.get(mapping.agentKey);
 
     if (!agent) {

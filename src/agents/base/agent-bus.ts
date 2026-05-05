@@ -17,6 +17,18 @@ export class AgentBus {
   private listeners = new Map<string, Set<EventHandler>>();
   private responders = new Map<string, RequestHandler>();
   private eventLog: AgentEvent[] = [];
+  /**
+   * Dedupe keys for idempotent subscriptions. When an agent module
+   * reloads under Next.js HMR, it constructs a fresh instance whose
+   * constructor re-calls `subscribe` — the OLD handler references on
+   * the bus are still live, so naive subscribes stack duplicates.
+   *
+   * `subscribeOnce` uses this set: pass a stable `(agentId:eventType)`
+   * key; the FIRST subscribe wins, subsequent calls are no-ops. The
+   * bus is still usable across hot reloads and fresh subscribers are
+   * ignored rather than added, which keeps event counts predictable.
+   */
+  private onceKeys = new Set<string>();
 
   /**
    * Subscribe to events of a given type.
@@ -31,6 +43,22 @@ export class AgentBus {
     return () => {
       this.listeners.get(eventType)?.delete(handler);
     };
+  }
+
+  /**
+   * Idempotent subscribe — skips the registration if a prior caller
+   * already claimed `key`. Use from agent constructors with a key like
+   * `"content:job:high-fit"` so HMR-triggered reconstructions don't
+   * multiply handlers.
+   */
+  subscribeOnce(key: string, eventType: string, handler: EventHandler): () => void {
+    if (this.onceKeys.has(key)) {
+      // Already subscribed under this key — return a no-op unsubscriber
+      // so callers don't crash on a missing handle.
+      return () => {};
+    }
+    this.onceKeys.add(key);
+    return this.subscribe(eventType, handler);
   }
 
   /**
@@ -122,7 +150,12 @@ export class AgentBus {
   }
 }
 
-// Singleton instance
+// Singleton instance.
+// Rev key: incrementing this forces HMR to treat the module as changed
+// when upstream services (e.g. pdf-service) update — otherwise stale
+// subscriber closures hold old references.
+const BUS_REV = 2;
+void BUS_REV;
 let _bus: AgentBus | null = null;
 
 export function getAgentBus(): AgentBus {

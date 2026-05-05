@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { profile } from "@/data/profile";
 import { jobPreferences } from "@/data/job-preferences";
-import { insertGeneratedContent } from "@/lib/db";
+import { insertGeneratedContent, updateJobKit } from "@/lib/db";
 
 export async function POST(request: NextRequest) {
   const { jobId, jobTitle, company, description, fitPercentage } = await request.json();
@@ -115,6 +115,27 @@ Tech: [relevant technologies]
     // Save cover letter
     const coverLetter = sections.COVER_LETTER || "";
     const coverLetterId = insertGeneratedContent("cover_letter", coverLetter, `job-${jobId}`);
+
+    // Persist Bulk Reviewer kit fields onto the same row. Top-3 bullets
+    // are extracted by pulling the first three lines that start with `•`
+    // out of EXPERIENCE_BULLETS — Claude formats them consistently per
+    // the prompt template above. Falls back to an empty array if the
+    // section is missing or malformed; the modal renders the empty
+    // state honestly rather than fabricating bullets.
+    const tailoredSummary = sections.SUMMARY || "";
+    const bulletLines = (sections.EXPERIENCE_BULLETS || "")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith("•") || line.startsWith("- "))
+      .map((line) => line.replace(/^•\s*|^-\s*/, "").trim())
+      .filter(Boolean)
+      .slice(0, 3);
+    if (jobId) {
+      updateJobKit(jobId, {
+        tailoredSummary,
+        resumeBullets: bulletLines,
+      });
+    }
 
     // Save resume content
     const resumeContent = [

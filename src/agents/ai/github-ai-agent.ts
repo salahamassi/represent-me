@@ -14,13 +14,14 @@ import { CodeGemsAnalysisSchema, type CodeGemsAnalysis } from "../schemas/code-g
 import {
   fetchGitHubRepos,
   fetchGitHubProfile,
-  searchIssuesForSkills,
+  searchIssuesInRepos,
   fetchRepoReadme,
   fetchUserPRsInRepo,
   fetchRepoTree,
   fetchRepoContents,
   type GitHubIssueResult,
 } from "@/services/github-api-service";
+import { POPULAR_MOBILE_REPOS } from "@/data/mobile-repos";
 import {
   isContributionSeen,
   insertContribution,
@@ -54,8 +55,14 @@ You help with:
 
     // Register responder for Code Gems mining requests from Content Agent
     this.bus.respond("github:analyze-repo", async (payload) => {
-      const { owner, repo, branch } = payload as { owner: string; repo: string; branch?: string };
-      return await this.analyzeRepoForGems(owner, repo, branch);
+      const { owner, repo, branch, context, path } = payload as {
+        owner: string;
+        repo: string;
+        branch?: string;
+        context?: string;
+        path?: string;
+      };
+      return await this.analyzeRepoForGems(owner, repo, branch, context, path);
     });
   }
 
@@ -175,17 +182,29 @@ Return JSON with profileRecommendations, repoInsights, contributionStrategy, ove
     const actionItems: ActionItem[] = [];
 
     try {
-      this.logStep("fetch", "Searching GitHub for matching issues", { skills: ["swift", "dart", "typescript", "kotlin"] });
+      this.logStep("fetch", `Senior triage: hunting real bugs in ${POPULAR_MOBILE_REPOS.length} curated Flutter/iOS repos`, {
+        repoCount: POPULAR_MOBILE_REPOS.length,
+      });
 
-      const issues = await searchIssuesForSkills(
-        ["swift", "dart", "typescript", "kotlin"],
-        ["good first issue", "help wanted"]
-      );
+      // No label filter — fetch all recently updated open issues, let Claude triage.
+      const issues = await searchIssuesInRepos(POPULAR_MOBILE_REPOS);
 
       this.logStep("fetch", `Found ${issues.length} issues total`, { count: issues.length });
 
+      // Pre-filter: drop issues with non-actionable labels (saves Claude calls)
+      const NON_ACTIONABLE = [
+        "question", "duplicate", "wontfix", "won't fix", "invalid",
+        "discussion", "needs triage", "needs-triage", "waiting for info",
+        "waiting-for-info", "stale", "not a bug",
+      ];
+      const actionableIssues = issues.filter((i) => {
+        const labelNames = i.labels.map((l) => l.name.toLowerCase());
+        return !labelNames.some((ln) => NON_ACTIONABLE.some((na) => ln.includes(na)));
+      });
+      this.logStep("fetch", `${actionableIssues.length} actionable issues after label filter`, { actionableCount: actionableIssues.length });
+
       // Filter out already seen
-      const newIssues = issues.filter((i) => !isContributionSeen(i.html_url));
+      const newIssues = actionableIssues.filter((i) => !isContributionSeen(i.html_url));
       this.logStep("fetch", `${newIssues.length} new issues after dedup`, { newCount: newIssues.length });
 
       if (newIssues.length === 0) {
@@ -200,7 +219,7 @@ Return JSON with profileRecommendations, repoInsights, contributionStrategy, ove
           const readme = await fetchRepoReadme(issue.repoOwner, issue.repoName);
           const analysis = await this.analyzeIssue(issue, readme);
 
-          if (analysis.skillMatch < 40) {
+          if (analysis.skillMatch < 50) {
             console.log(`[IssueHunter] Skip ${issue.title} (${analysis.skillMatch}% match)`);
             continue;
           }
@@ -253,7 +272,13 @@ Return JSON with profileRecommendations, repoInsights, contributionStrategy, ove
   }
 
   private async analyzeIssue(issue: GitHubIssueResult, readme: string): Promise<IssueAnalysis> {
-    const prompt = `Analyze this GitHub issue for the candidate:
+    const prompt = `You are triaging a GitHub issue from a popular mobile open-source library for a SENIOR mobile developer (5+ years in Swift, UIKit, SwiftUI, Flutter, Dart, protocol-oriented programming, Clean Architecture, iOS/Android production apps). Their real-world contribution workflow:
+
+1. They use the library in production work
+2. They hit a real bug or missing feature
+3. They fix it themselves if the scope is tractable (a few hours to a weekend)
+
+Evaluate whether this issue is worth picking up — meaning: is it a REAL actionable bug/enhancement, and could a senior ship a PR for it?
 
 Repository: ${issue.repoOwner}/${issue.repoName}
 Issue #${issue.number}: ${issue.title}
@@ -267,23 +292,29 @@ ${issue.body.slice(0, 2000)}
 Repository README (excerpt):
 ${readme.slice(0, 1000)}
 
+Scoring guidance for skillMatch (0-100):
+- 90-100: clear bug in Swift/UIKit/SwiftUI/Flutter/Dart, small scope, senior can ship quickly, high CV value
+- 70-89: real bug or enhancement, moderate scope, well within the candidate's skillset
+- 50-69: actionable but larger scope OR requires domain knowledge the candidate may lack
+- Below 50: question, feature request without clear spec, internal build-system issue, platform-specific (macOS-only, tvOS-only), needs deep maintainer context, or not aligned with Swift/Flutter/iOS/Dart expertise
+
 Return a JSON object with this EXACT structure (use these exact camelCase key names):
 {
   "issueType": "bug",
-  "difficulty": "beginner",
-  "estimatedHours": 3,
+  "difficulty": "intermediate",
+  "estimatedHours": 6,
   "relevantSkills": ["Swift", "UIKit"],
   "skillMatch": 75,
   "approachSummary": "Brief summary of how to solve it",
   "approachSteps": ["Step 1", "Step 2", "Step 3"],
   "filesToModify": ["path/to/file.swift"],
   "potentialChallenges": ["Challenge 1"],
-  "learningValue": "What the candidate will learn",
+  "learningValue": "What the candidate will learn or demonstrate",
   "contentPotential": "high"
 }
 
 issueType must be one of: "bug", "feature", "enhancement", "documentation", "refactor"
-difficulty must be one of: "beginner", "intermediate", "advanced"
+difficulty must be one of: "beginner", "intermediate", "advanced" (prefer intermediate/advanced — this is senior triage)
 contentPotential must be one of: "high", "medium", "low"
 ALL fields are required. filesToModify can be an empty array if unknown.`;
 
@@ -448,29 +479,105 @@ ALL fields are required. filesToModify can be an empty array if unknown.`;
 
   // ===== Code Gems Responder (called by Content Agent via bus) =====
 
-  async analyzeRepoForGems(owner: string, repo: string, branch?: string): Promise<CodeGemsAnalysis> {
-    const repoName = `${owner}/${repo}`;
-    this.logStep("fetch", `Analyzing repo for gems: ${repoName}`, { repoName });
+  async analyzeRepoForGems(
+    owner: string,
+    repo: string,
+    branch?: string,
+    context?: string,
+    path?: string
+  ): Promise<CodeGemsAnalysis> {
+    const targetLabel = path ? `${owner}/${repo}:${path}` : `${owner}/${repo}`;
+    // repoName carries the full target (with path) into the prompt + the
+    // CodeGemsAnalysis schema's repoName field, so downstream gem cards
+    // and the chatter feed reflect the actual mining unit (the package),
+    // not just the monorepo. Layla's post drafter uses this as well.
+    const repoName = targetLabel;
+    this.logStep("fetch", `Analyzing for gems: ${targetLabel}`, { targetLabel });
 
-    const tree = await fetchRepoTree(owner, repo, branch);
-    this.logStep("fetch", `Found ${tree.length} source files in ${repoName}`, { fileCount: tree.length });
+    // Path filter is pushed INTO fetchRepoTree so it applies before
+    // the 50-file global slice. Without this, a request for a
+    // monorepo subpackage like "packages/form" returns zero files
+    // because the slice fills with alphabetically-earlier siblings.
+    const pathPrefix = path ? path.replace(/\/+$/, "") + "/" : "";
+    const tree = await fetchRepoTree(owner, repo, branch, {
+      pathFilter: path,
+    });
+    this.logStep(
+      "fetch",
+      `Found ${tree.length} files in ${targetLabel}`,
+      { fileCount: tree.length, pathPrefix }
+    );
 
     if (tree.length === 0) {
       return { gems: [] };
     }
 
-    // Pick interesting files (larger ones, non-trivial names)
-    const selectedFiles = tree.slice(0, 8);
-    const fileContents: { path: string; content: string }[] = [];
+    // Selectivity — bias toward the files that actually carry "gems"
+    // (README, public lib/ source, example/ usage), drop the noise
+    // (generated files, test fixtures, build artefacts). This keeps
+    // GitHub API calls under the rate limit AND raises the signal
+    // density of the files we hand to Claude.
+    const NOISE_PATTERNS = [
+      /\.g\.dart$/, // build_runner generated
+      /\.freezed\.dart$/, // freezed generated
+      /\.gr\.dart$/, // auto_route generated
+      /\.config\.dart$/, // injectable generated
+      /\.mocks\.dart$/, // mockito generated
+      /_test\.dart$/, // tests
+      /\/test\//, // test directories
+      /\/build\//, // build artefacts
+      /\.pb\.dart$/, // protobuf generated
+      /\/\.dart_tool\//, // pub cache
+      /pubspec\.lock$/, // lockfile
+    ];
+    const isNoise = (p: string) => NOISE_PATTERNS.some((rx) => rx.test(p));
+    /** Tier 1 = strongest gem signal. Tier 4 = leftover, last resort. */
+    const tierOf = (p: string): number => {
+      const rel = pathPrefix ? p.slice(pathPrefix.length) : p;
+      if (/^README\.md$/i.test(rel)) return 1;
+      if (rel.startsWith("example/") || rel.startsWith("examples/")) return 1;
+      if (rel.startsWith("lib/src/")) return 2;
+      if (rel.startsWith("lib/")) return 2;
+      if (rel.startsWith("src/")) return 2;
+      if (/\.(dart|swift|kt|kts|ts|tsx)$/.test(rel)) return 3;
+      return 4;
+    };
 
-    for (const file of selectedFiles) {
+    const filtered = tree.filter((f) => !isNoise(f.path));
+    // Sort by tier ASC, then by size DESC inside the tier so we
+    // prefer the substantial files. Random tie-break inside tier 3+
+    // so re-runs surface different gems over time.
+    const sorted = [...filtered].sort((a, b) => {
+      const ta = tierOf(a.path);
+      const tb = tierOf(b.path);
+      if (ta !== tb) return ta - tb;
+      const sa = a.size ?? 0;
+      const sb = b.size ?? 0;
+      if (Math.abs(sa - sb) > 200) return sb - sa;
+      return Math.random() - 0.5;
+    });
+
+    const fileContents: { path: string; content: string }[] = [];
+    const TARGET_FILES = 6;
+    const MAX_ATTEMPTS = 20;
+
+    for (let i = 0; i < sorted.length && i < MAX_ATTEMPTS; i++) {
+      if (fileContents.length >= TARGET_FILES) break;
+      const file = sorted[i];
       const content = await fetchRepoContents(owner, repo, file.path, branch);
-      if (content.length > 50) {
-        fileContents.push({ path: file.path, content: content.slice(0, 1500) });
+      if (content.length > 200) {
+        fileContents.push({ path: file.path, content: content.slice(0, 1800) });
       }
     }
 
+    this.logStep(
+      "fetch",
+      `Selected ${fileContents.length} substantial files for analysis in ${targetLabel}`,
+      { fileCount: fileContents.length, targetLabel, picked: fileContents.map((f) => f.path) }
+    );
+
     if (fileContents.length === 0) {
+      this.logStep("error", `No substantial files found in ${repoName} after ${MAX_ATTEMPTS} attempts`, { repoName });
       return { gems: [] };
     }
 
@@ -478,10 +585,20 @@ ALL fields are required. filesToModify can be an empty array if unknown.`;
       .map((f) => `--- ${f.path} ---\n${f.content}`)
       .join("\n\n");
 
-    const prompt = `Analyze these source files from the "${repoName}" repository and find hidden gems — interesting patterns, clever solutions, architecture decisions, or optimizations that would make great technical content.
+    const contextBlock = context
+      ? `\nBUSINESS CONTEXT for this repository:\n${context}\n\nUse this context to understand WHY the code was written this way. The business domain, users, and stakeholders matter more than the pattern name.\n`
+      : "";
 
+    const prompt = `Analyze these source files from the "${repoName}" repository and find hidden gems — interesting patterns, clever solutions, architecture decisions, or optimizations that would make great technical content.
+${contextBlock}
 Files:
 ${filesText}
+
+IMPORTANT RULES for finding gems:
+- Look for patterns where the USAGE is beautiful/simple but the IMPLEMENTATION is clever
+- Find the real-world problem this code solved (not a textbook explanation)
+- Extract BOTH the implementation code AND how it's actually called/used
+- Think: "What would make another developer stop scrolling and say 'I need this'?"
 
 Find 2-4 gems. Return a JSON object with this EXACT structure (use these exact camelCase key names):
 {
@@ -492,7 +609,9 @@ Find 2-4 gems. Return a JSON object with this EXACT structure (use these exact c
       "gemType": "pattern",
       "title": "Short descriptive title",
       "description": "What this code does",
-      "codeSnippet": "the relevant code snippet",
+      "codeSnippet": "the implementation/definition code",
+      "usageExample": "how this is actually USED in the codebase — the call site, the API consumer sees. If not visible in the files, write the most natural usage based on the API design",
+      "realProblem": "The actual pain point this solved — use the BUSINESS CONTEXT above. Think about real users, marketers, QA teams, not just developers. Not 'better code organization' but 'our marketing team couldn't retarget purchase events because we were using custom event names instead of Firebase's standard purchase event'. Connect code to business outcomes.",
       "whyInteresting": "Why this is noteworthy",
       "contentAngle": "How to turn this into content",
       "suggestedPlatform": "linkedin",
@@ -505,7 +624,11 @@ gemType must be one of: "pattern", "architecture", "trick", "optimization"
 suggestedPlatform must be one of: "linkedin", "medium", "devto"
 ALL fields are required strings. Do NOT omit any field.`;
 
-    const result = await this.analyze(prompt, CodeGemsAnalysisSchema, { maxTokens: 2500 });
+    // 4500 tokens of headroom for up to 4 gems × ~1000 tokens each
+    // (each gem carries codeSnippet, usageExample, realProblem, plus
+    // ~6 other prose fields). 2500 was tight enough that gems with
+    // long real-world Bond code routinely got truncated mid-JSON.
+    const result = await this.analyze(prompt, CodeGemsAnalysisSchema, { maxTokens: 4500 });
     return result.data;
   }
 }

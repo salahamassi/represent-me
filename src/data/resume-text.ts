@@ -47,16 +47,26 @@ BIM Ventures
 
 VP of Innovation & Mobile Team Lead – One Studio
 One Studio
-12/2021 - 06/2024 | Gaza Strip
-- Guided mobile engineering and martech infrastructure for Famcare (Appsflyer, WebEngage, Intercom)
-- Promoted to lead mobile engineers across startup portfolio
-- Founded and led development of Flutter Bond, a Laravel-inspired framework
-- Introduced internal tooling and architectural templates to accelerate app development
+08/2022 - 06/2024 | Gaza Strip
+- Promoted from Famcare to lead mobile engineering across the full startup portfolio, working directly with studio leadership
+- Founded and led development of Flutter Bond, a Laravel-inspired open-source framework (100+ GitHub stars, 145+ tests)
+- Set architectural standards and code-review baselines adopted across portfolio teams
+- Introduced internal tooling and templates to accelerate startup launches
 - Mentored developers and facilitated cross-functional collaboration
-- Worked closely with marketing and growth teams for A/B testing and performance analyses
-- Authored content like Flutter Dio Interceptors + Unit Test and A Start-up's Guide to iOS User Notifications
 
-Senior iOS Developer
+Senior Flutter Developer to Mobile Team Lead
+Famcare (One Studio portfolio company)
+12/2021 - 08/2022 | Gaza Strip
+Online mental-health teletherapy platform inside One Studio's portfolio. Individual and group video therapy sessions with subscription billing, diagnostic assessments, and campaign-attribution onboarding.
+- Promoted to Mobile Team Lead after 2 months, taking ownership of Flutter delivery
+- Integrated Agora SDK for HD voice and video therapy sessions, supporting both 1:1 and group call modes
+- Developed multi-step diagnostic assessment flows with branching logic for patient screening and intake
+- Built daily mood tracker for patients to log emotional state between sessions, surfacing trends to their therapist
+- Built recurring subscription and one-time package billing flows on iOS and Google Play
+- Engineered deep-link campaign attribution that surfaced invite codes through onboarding to track marketing source
+- Shipped Famcare to iOS App Store and Google Play; automated release builds and deployment with Code Magic CI/CD
+
+iOS Developer
 ITG Software, Inc.
 06/2021 - 12/2021 | Gaza Strip
 - Implemented remote identity verification using real-time ID and face capture for SIM activation

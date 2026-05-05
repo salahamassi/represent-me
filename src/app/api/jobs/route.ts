@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSeenJobs, getContentByType } from "@/lib/db";
+import { getSeenJobs, getJobKit } from "@/lib/db";
 import { jobPreferences } from "@/data/job-preferences";
 import { profile } from "@/data/profile";
 
@@ -21,18 +21,19 @@ export async function GET() {
     resume_id: number | null;
   }[];
 
-  // Get all generated content to match with jobs
-  const allContent = getContentByType("all") as { suggestion_id: string; content_type: string; generated_text: string }[];
-
-  // Parse the jobs — only show 30%+ fit
+  // Parse the jobs — only show 30%+ fit. Each row also carries its
+  // Bulk Reviewer kit (cover letter + tailored summary + top-3 bullets)
+  // so the modal can render edits without a second fetch per row.
   const jobs = dbJobs.filter((j) => (j.fit_percentage || 0) >= 30).map((j) => {
-    const coverLetter = allContent.find((c) => c.suggestion_id === `job-${j.id}` && c.content_type === "cover_letter");
+    const kit = getJobKit(j.id);
     return {
       ...j,
       matchedSkills: j.matched_skills ? JSON.parse(j.matched_skills) : [],
       missingSkills: j.missing_skills ? JSON.parse(j.missing_skills) : [],
       aiAnalysis: j.ai_analysis ? (() => { try { return JSON.parse(j.ai_analysis!); } catch { return null; } })() : null,
-      coverLetter: coverLetter?.generated_text || null,
+      coverLetter: kit?.coverLetter || null,
+      tailoredSummary: kit?.tailoredSummary || null,
+      resumeBullets: kit?.resumeBullets || [],
       hasResume: !!j.resume_id,
     };
   });

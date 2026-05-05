@@ -3,6 +3,7 @@
  * Arc.dev is the primary source — fetched server-side via HTML parsing.
  */
 
+import { createHash } from "crypto";
 import type { JobTemplate } from "@/types";
 
 interface SearchedJob {
@@ -117,7 +118,7 @@ export function normalizeSearchedJob(job: SearchedJob): JobTemplate {
   if (skills.length === 0) skills.push("Software Engineering");
 
   return {
-    id: `${job.source}-${Buffer.from(job.url).toString("base64url").slice(0, 30)}`,
+    id: `${job.source}-${createHash("sha1").update(job.url).digest("base64url")}`,
     title: job.title,
     company: job.company,
     companyType: "Company",

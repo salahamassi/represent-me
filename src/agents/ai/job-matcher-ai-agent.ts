@@ -6,11 +6,45 @@
 import { AIAgent, type AIAgentConfig } from "../base/ai-agent";
 import type { AgentBus } from "../base/agent-bus";
 import { AIJobAnalysisSchema, type AIJobAnalysis } from "../schemas/job-analysis.schema";
+import { SaqrLeadAnalysisSchema, type SaqrLeadAnalysis } from "../schemas/manual-lead.schema";
 import { fetchRemoteOKJobs } from "@/services/remoteok-service";
 import { fetchArcDevFlutterJobs, normalizeSearchedJob } from "@/services/job-search-service";
-import { isJobSeen, markJobSeen, updateJobAIAnalysis, logRunStart, logRunEnd, markRunNotified } from "@/lib/db";
+import { fetchLinkedInJobs } from "@/services/linkedin-jobs-service";
+import {
+  isJobSeen,
+  markJobSeen,
+  updateJobAIAnalysis,
+  logRunStart,
+  logRunEnd,
+  markRunNotified,
+  updateManualLead,
+} from "@/lib/db";
 import * as telegram from "@/lib/telegram";
 import type { AgentResult, Finding, ActionItem } from "@/types";
+
+/**
+ * Round-robin merge across job sources, taking `chunkSize` jobs from each
+ * source per pass. Keeps each source represented in the first N entries so
+ * the downstream `slice(0, 10)` analysis budget doesn't starve later sources.
+ */
+function interleaveJobSources<T>(sources: T[][], chunkSize: number): T[] {
+  const out: T[] = [];
+  const cursors = sources.map(() => 0);
+  let didAdvance = true;
+  while (didAdvance) {
+    didAdvance = false;
+    for (let i = 0; i < sources.length; i++) {
+      const start = cursors[i];
+      const end = Math.min(start + chunkSize, sources[i].length);
+      if (end > start) {
+        out.push(...sources[i].slice(start, end));
+        cursors[i] = end;
+        didAdvance = true;
+      }
+    }
+  }
+  return out;
+}
 
 export class JobMatcherAIAgent extends AIAgent {
   constructor(bus: AgentBus) {
@@ -36,6 +70,7 @@ Consider:
 - Experience level and leadership potential
 - Cultural and domain fit
 - Salary market alignment
+- RELOCATION BONUS: the candidate is open to relocating. If the posting mentions visa sponsorship, relocation assistance, or a clear willingness to support international hires, bump the fitPercentage by +5-10% and call this out in the reasoning. If it mandates a specific onsite location with no relocation support, nudge down slightly — the candidate can still commute globally for the right role but pure-remote is the default.
 
 Be realistic but fair. This candidate has:
 - Strong mobile expertise across iOS, Flutter, and React Native
@@ -56,6 +91,129 @@ IMPORTANT: When categorizing skills, check the candidate's FULL profile includin
         });
       }
     });
+
+    // Phase 6 — Obeida Workflow: Saqr is the analyst on the manual-lead
+    // chain. When Salah pastes a JD, we run a structured Claude pass to
+    // lock exactly 3 Key Success Factors + a lean fit analysis, then
+    // publish `manual-lead:analyzed` so Qalam and Amin can fan out.
+    this.bus.subscribeOnce("job-matcher:manual-lead:submitted", "manual-lead:submitted", async (event) => {
+      const payload = event.payload as {
+        leadId: string;
+        jdText: string;
+        url: string | null;
+        jobTitle: string;
+        company: string;
+        contactName: string | null;
+      };
+      console.log(`[Saqr] Manual lead received (${payload.leadId}) — analyzing JD...`);
+      try {
+        await this.analyzeManualLead(payload);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[Saqr] Manual-lead analysis failed:", err);
+        this.logStep(
+          "manual-lead:error",
+          `Manual-lead analysis failed: ${msg.slice(0, 120)}`,
+          { leadId: payload.leadId, error: msg.slice(0, 500) }
+        );
+        updateManualLead(payload.leadId, { kitStatus: "error" });
+      }
+    });
+  }
+
+  /**
+   * Saqr's manual-lead analyzer. Uses the broader `analyze()` path with
+   * a JSON-shape schema that *requires* exactly 3 Key Success Factors —
+   * Zod's `.length(3)` enforcement means we won't silently ship a 2 or
+   * 4-item list. If Claude produces the wrong count, zod throws and the
+   * outer catch flips the row to 'error'.
+   */
+  private async analyzeManualLead(payload: {
+    leadId: string;
+    jdText: string;
+    url: string | null;
+    jobTitle: string;
+    company: string;
+    contactName: string | null;
+  }): Promise<void> {
+    const { leadId, jdText, url, jobTitle, company, contactName } = payload;
+
+    const prompt = `Analyze this job description for Salah. He got the lead via ${
+      contactName ? `${contactName} (personal referral)` : "a direct paste"
+    }.
+
+JD:
+"""
+${jdText.slice(0, 4000)}
+"""
+
+User-provided metadata:
+- Title: ${jobTitle === "Pending title" ? "(not provided — extract from JD)" : jobTitle}
+- Company: ${company === "Pending company" ? "(not provided — extract from JD)" : company}
+- URL: ${url || "(none)"}
+
+Return JSON with this EXACT structure (all fields required):
+{
+  "jobTitle": "extracted or provided job title",
+  "company": "extracted or provided company name",
+  "summary": "one-paragraph summary of the role — what it IS, not a bullet list (20-400 chars)",
+  "keySuccessFactors": [
+    "Factor 1 — actionable, specific",
+    "Factor 2 — actionable, specific",
+    "Factor 3 — actionable, specific"
+  ],
+  "matchedSkills": [{"skill": "Swift", "evidence": "5+ years iOS at WiNCH"}],
+  "transferableSkills": [{"required": "Kotlin", "transferFrom": "Swift", "confidence": "medium"}],
+  "missingSkills": ["Docker"],
+  "fitPercentage": 88,
+  "resumeEmphasis": ["UIKit→SwiftUI migration", "Crash-rate reduction"],
+  "applicationTips": "One sentence of tactical advice."
+}
+
+CRITICAL:
+- keySuccessFactors MUST be an array of EXACTLY 3 strings — not 2, not 4.
+- Factors are actionable, not generic ("Lead a 0→1 SwiftUI rewrite with tight release cadence", NOT "Be a team player").
+- confidence is one of "high" | "medium" | "low".
+- Be realistic on fitPercentage — only count skills Salah actually has.`;
+
+    const result = await this.analyze(prompt, SaqrLeadAnalysisSchema, {
+      maxTokens: 2000,
+    });
+    const analysis = result.data;
+
+    // Persist Saqr's output onto the lead row so downstream agents and
+    // the UI can read it without another Claude call.
+    updateManualLead(leadId, {
+      keySuccessFactors: JSON.stringify(analysis.keySuccessFactors),
+      fitPercentage: analysis.fitPercentage,
+      aiAnalysis: JSON.stringify(analysis),
+      kitStatus: "analyzed",
+    });
+
+    // Human-readable activity row — surfaces in the Chatter Feed as the
+    // "Saqr locked 3 factors" message.
+    this.logStep(
+      "manual-lead:analyzed",
+      `${analysis.fitPercentage}% fit — ${analysis.company}. Factors: ${analysis.keySuccessFactors.join(" · ")}`,
+      {
+        leadId,
+        factors: analysis.keySuccessFactors,
+        fitPercentage: analysis.fitPercentage,
+        company: analysis.company,
+      }
+    );
+
+    // Fan out — Qalam and Amin subscribe to this event independently.
+    await this.bus.publish("manual-lead:analyzed", "job-matcher", {
+      leadId,
+      jdText,
+      url,
+      jobTitle: analysis.jobTitle,
+      company: analysis.company,
+      contactName,
+      fitPercentage: analysis.fitPercentage,
+      analysis,
+    });
   }
 
   async run(context?: Record<string, unknown>): Promise<AgentResult> {
@@ -66,19 +224,29 @@ IMPORTANT: When categorizing skills, check the candidate's FULL profile includin
 
     try {
       // Fetch from multiple sources
-      this.logStep("fetch", "Fetching jobs from RemoteOK + Arc.dev");
+      this.logStep("fetch", "Fetching jobs from RemoteOK + Arc.dev + LinkedIn");
 
-      const [remoteOKResult, arcDevResult] = await Promise.allSettled([
+      const [remoteOKResult, arcDevResult, linkedInResult] = await Promise.allSettled([
         fetchRemoteOKJobs(),
         fetchArcDevFlutterJobs(),
+        fetchLinkedInJobs(),
       ]);
 
       const remoteOKJobs = remoteOKResult.status === "fulfilled" ? remoteOKResult.value.jobs : [];
       const arcDevRaw = arcDevResult.status === "fulfilled" ? arcDevResult.value : [];
       const arcDevJobs = arcDevRaw.map(normalizeSearchedJob);
+      const linkedInRaw = linkedInResult.status === "fulfilled" ? linkedInResult.value : [];
+      const linkedInJobs = linkedInRaw.map(normalizeSearchedJob);
 
-      const jobs = [...remoteOKJobs, ...arcDevJobs];
-      this.logStep("fetch", `${jobs.length} jobs found (RemoteOK: ${remoteOKJobs.length}, Arc.dev: ${arcDevJobs.length})`, { total: jobs.length });
+      // Interleave sources in chunks of 2 so the slice(0, 10) analysis
+      // budget below is shared fairly. A flat concat would always starve
+      // the last source(s) when the earlier ones return >= 10 jobs.
+      const jobs = interleaveJobSources([remoteOKJobs, arcDevJobs, linkedInJobs], 2);
+      this.logStep(
+        "fetch",
+        `${jobs.length} jobs found (RemoteOK: ${remoteOKJobs.length}, Arc.dev: ${arcDevJobs.length}, LinkedIn: ${linkedInJobs.length})`,
+        { total: jobs.length }
+      );
 
       const newJobs = jobs.filter((j) => !isJobSeen(j.id));
       this.logStep("fetch", `${newJobs.length} new jobs to analyze`, { newCount: newJobs.length });
@@ -114,12 +282,14 @@ IMPORTANT: When categorizing skills, check the candidate's FULL profile includin
         // Use the job's own URL if available, otherwise construct from RemoteOK
         const jobUrl = (job as any).url || `https://remoteok.com/remote-jobs/${job.id.replace("remoteok-", "")}`;
 
+        const source = job.id.split("-")[0] || "remoteok";
+
         // Skip jobs below 30% — they're noise
         if (analysis.fitPercentage < 30) {
           console.log(`[AI JobMatcher] SKIP ${analysis.fitPercentage}%: ${job.title} — too low`);
           // Mark as seen so we don't re-analyze, but don't save details
           markJobSeen({
-            id: job.id, source: "remoteok", title: job.title, company: job.company,
+            id: job.id, source, title: job.title, company: job.company,
             url: jobUrl, fitPercentage: analysis.fitPercentage,
           });
           continue;
@@ -128,7 +298,7 @@ IMPORTANT: When categorizing skills, check the candidate's FULL profile includin
         // Save to DB
         markJobSeen({
           id: job.id,
-          source: "remoteok",
+          source,
           title: job.title,
           company: job.company,
           url: jobUrl,

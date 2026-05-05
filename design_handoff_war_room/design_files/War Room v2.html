@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<title>War Room v2 — Squad (Yusuf · Rashid · Layla · Kareem · Tariq)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Reem+Kufi:wght@400;500;600;700&family=Amiri:wght@400;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css" />
+<style>body{margin:0} .canvas-host{position:relative;z-index:1}</style>
+</head>
+<body>
+<div class="bg-ambient"></div>
+<div class="canvas-host"><div id="root"></div></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="personas.jsx"></script>
+<script type="text/babel" src="tariq-workbench.jsx"></script>
+<script type="text/babel" src="chat-drawer.jsx"></script>
+<script type="text/babel" src="floor-plan.jsx"></script>
+<script type="text/babel" src="yusuf-brief.jsx"></script>
+
+<script type="text/babel">
+const { DesignCanvas, DCSection, DCArtboard } = window;
+
+function App() {
+  const [theme, setTheme] = React.useState("dark");
+  React.useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+  }, [theme]);
+
+  return (
+    <DesignCanvas title="War Room v2 — Squad" subtitle="Yusuf · Rashid · Layla · Kareem · Tariq — inhabited floor plan, chat drawers, live A2A chatter">
+      <DCSection id="floor" title="01 · Floor-Plan Office View"
+        subtitle="Each agent has a desk. Click any desk to open a chat. Packets travel between desks on A2A handoffs. Theme toggle + Intensity Dial + chain triggers live in the top bar.">
+        <DCArtboard id="floor-main" label="Floor Plan · Live · Click a desk to chat" width={1280} height={900}>
+          <FloorPlan theme={theme} setTheme={setTheme} />
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="tariq" title="02 · Tariq (طارق) — Deadline Enforcer"
+        subtitle="Cinematic avatar, Reem Kufi calligraphy at 96px, live-ticking IELTS countdown, urgency-sorted deadline stack. Not polite.">
+        <DCArtboard id="tariq-full" label="Tariq · Full Workbench" width={960} height={640}>
+          <TariqWorkbench />
+        </DCArtboard>
+        <DCArtboard id="tariq-card" label="Tariq · Card variant" width={380} height={560}>
+          <TariqCard />
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="hero" title="03 · Yusuf Brief — Desktop + Mobile Glance"
+        subtitle="Avatar + Arabic display glyph anchor both scales. Mobile glance is gym-friendly — one screen, status pills, quick-reads from the rest of the squad.">
+        <DCArtboard id="hero-desktop" label="Yusuf Brief · Desktop hero" width={1200} height={300}>
+          <YusufBrief mode="desktop" />
+        </DCArtboard>
+        <DCArtboard id="hero-mobile" label="Yusuf Brief · Mobile glance (390×844)" width={390} height={844}>
+          <YusufBrief mode="mobile" />
+        </DCArtboard>
+      </DCSection>
+    </DesignCanvas>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>

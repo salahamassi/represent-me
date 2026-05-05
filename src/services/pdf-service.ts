@@ -1,31 +1,79 @@
 /**
  * PDF Resume Generator — Creates professional PDF resumes using pdfkit.
+ *
+ * Implementation note: under Next.js / turbopack, `process.cwd()` is
+ * sandboxed to "/ROOT" and pdfkit's internal AFM font loading fails
+ * (ENOENT on /ROOT/node_modules/pdfkit/js/data/Helvetica.afm). We solve
+ * it the same way `profile-pdf-service` does: shell out to the
+ * standalone script `scripts/generate-pdf.js`, which runs under a real
+ * Node cwd and sees the real filesystem. The script accepts a JSON
+ * payload with `{ resume, profile, jobTitle }` and writes to a path.
+ *
+ * The in-process pdfkit code further down in this module is retained
+ * for reference only — it's unused at runtime. Delete it once we're
+ * confident the child-process path is stable.
  */
 
+import { spawn } from "child_process";
 import PDFDocument from "pdfkit";
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 import type { ResumeGeneration } from "@/agents/schemas/resume-gen.schema";
 import { profile } from "@/data/profile";
 
-// Resolve paths — try multiple locations for Next.js compatibility
+// Resolve paths — try multiple locations for Next.js compatibility.
+// Turbopack dev mode reports `process.cwd() === "/ROOT"` which does not
+// exist on disk, so the cwd-based candidates all miss. We add an
+// `import.meta.url` fallback: this file lives at
+// `<project>/src/services/pdf-service.ts`, so climbing three levels
+// from its directory always lands us on the real project root.
 function findProjectRoot(): string {
-  // Try process.cwd() first, then walk up from this file
   const candidates = [
     process.cwd(),
     path.resolve(process.cwd(), ".."),
     path.resolve(process.cwd(), "../.."),
   ];
+  try {
+    const here = fileURLToPath(import.meta.url);
+    candidates.push(path.resolve(path.dirname(here), "..", "..", ".."));
+  } catch {
+    // Not ESM or no import.meta — the cwd candidates are our only hope.
+  }
   for (const dir of candidates) {
-    if (fs.existsSync(path.join(dir, "package.json")) && fs.existsSync(path.join(dir, "node_modules", "pdfkit"))) {
+    if (
+      fs.existsSync(path.join(dir, "package.json")) &&
+      fs.existsSync(path.join(dir, "node_modules", "pdfkit"))
+    ) {
       return dir;
     }
   }
   return process.cwd();
 }
 
-const PROJECT_ROOT = findProjectRoot();
-const FONT_DIR = path.join(PROJECT_ROOT, "node_modules", "pdfkit", "js", "data");
+// Under turbopack both `process.cwd()` and `import.meta.url` can resolve
+// to a virtual `/ROOT` path that doesn't exist on disk, which left
+// pdfkit unable to find its bundled fonts. Use `require.resolve` to
+// ask Node for the real on-disk location of pdfkit — that's sandbox-
+// proof because Node resolves from its actual module search paths —
+// then derive both FONT_DIR and PROJECT_ROOT from there.
+function resolvePdfkitRoot(): string | null {
+  try {
+    const req = eval("require") as NodeJS.Require;
+    const pkgJson = req.resolve("pdfkit/package.json");
+    return path.dirname(pkgJson); // <repo>/node_modules/pdfkit
+  } catch {
+    return null;
+  }
+}
+
+const PDFKIT_ROOT = resolvePdfkitRoot();
+const PROJECT_ROOT = PDFKIT_ROOT
+  ? path.resolve(PDFKIT_ROOT, "..", "..") // pdfkit → node_modules → <repo>
+  : findProjectRoot();
+const FONT_DIR = PDFKIT_ROOT
+  ? path.join(PDFKIT_ROOT, "js", "data")
+  : path.join(PROJECT_ROOT, "node_modules", "pdfkit", "js", "data");
 const RESUME_DIR = path.join(PROJECT_ROOT, "data", "resumes");
 
 // Colors
@@ -53,16 +101,74 @@ export async function generateResumePDF(
   const filename = `resume-${safeName}-${timestamp}.pdf`;
   const outputPath = path.join(RESUME_DIR, filename);
 
+  // Delegate to the standalone `scripts/generate-pdf.js` — runs in a
+  // real Node cwd so pdfkit can find its bundled fonts. Write the
+  // payload to a temp JSON file and spawn the child with the output
+  // path as an argument. Same pattern as profile-pdf-service.ts.
+  const scriptPath = path.join(PROJECT_ROOT, "scripts", "generate-pdf.js");
+  const jsonPath = path.join(
+    PROJECT_ROOT,
+    "data",
+    `_resume-payload-${timestamp}.json`
+  );
+  fs.writeFileSync(
+    jsonPath,
+    JSON.stringify({ resume: resumeData, profile, jobTitle })
+  );
+
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn("node", [scriptPath, outputPath, jsonPath], {
+      cwd: PROJECT_ROOT,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stderr = "";
+    child.stderr.on("data", (c) => (stderr += c.toString()));
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      // Clean up the temp payload regardless — it has no secrets but
+      // we don't want them piling up in `data/`.
+      try { fs.unlinkSync(jsonPath); } catch { /* ignore */ }
+      if (code === 0) resolve();
+      else reject(new Error(`generate-pdf.js exited ${code}: ${stderr || "(no stderr)"}`));
+    });
+  });
+
+  return outputPath;
+}
+
+/**
+ * Legacy in-process PDF generator — kept for reference, not wired up.
+ * Fails under turbopack because pdfkit reads .afm files from
+ * node_modules using `process.cwd()`-relative paths.
+ */
+async function _generateResumePDFInProcess(
+  resumeData: ResumeGeneration,
+  jobId: string,
+  jobTitle: string
+): Promise<string> {
+  ensureDir();
+
+  const timestamp = Date.now();
+  const safeName = jobTitle.replace(/[^a-zA-Z0-9]/g, "-").slice(0, 50);
+  const filename = `resume-${safeName}-${timestamp}.pdf`;
+  const outputPath = path.join(RESUME_DIR, filename);
+
+  // jobId currently unused in the in-process path — kept in the
+  // signature for symmetry with the primary generator.
+  void jobId;
+
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({
       size: "A4",
       margins: { top: 40, bottom: 40, left: 50, right: 50 },
     });
 
-    // Register fonts with absolute paths to fix Next.js resolution
-    doc.registerFont("Helvetica", path.join(FONT_DIR, "Helvetica.afm"));
-    doc.registerFont("Helvetica-Bold", path.join(FONT_DIR, "Helvetica-Bold.afm"));
-    doc.registerFont("Helvetica-Oblique", path.join(FONT_DIR, "Helvetica-Oblique.afm"));
+    // pdfkit ships with Helvetica / Helvetica-Bold / Helvetica-Oblique
+    // as built-in standard fonts — we don't need to register them from
+    // on-disk .afm files. Registering explicit paths breaks under
+    // turbopack (process.cwd() === "/ROOT") and isn't necessary for
+    // these standard PDF core fonts. Leaving the variables above for
+    // future custom-font work.
 
     const stream = fs.createWriteStream(outputPath);
     doc.pipe(stream);
@@ -184,6 +290,16 @@ export async function generateResumePDF(
           .font("Helvetica")
           .fillColor(TEXT)
           .text(`  —  ${project.description}`);
+        // v3 — Render the public URL on the next line in muted italic
+        // when present. Uses pdfkit's `link` so the URL is clickable
+        // in any conformant PDF reader.
+        if (project.url) {
+          doc
+            .font("Helvetica-Oblique")
+            .fontSize(8)
+            .fillColor(MUTED)
+            .text(project.url, { link: project.url, underline: false });
+        }
       }
 
       drawDivider(doc, pageWidth);

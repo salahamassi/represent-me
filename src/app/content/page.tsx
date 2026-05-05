@@ -5,6 +5,7 @@ import { useContentStore } from "@/store/content-store";
 import { ContentPostCard } from "@/components/content/content-post-card";
 import { CodeGemCard } from "@/components/content/code-gem-card";
 import { ContributionCard } from "@/components/content/contribution-card";
+import { AgentStatusBanner } from "@/components/content/agent-status-banner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import type { GeneratedContent, CodeGem, OSSContribution } from "@/types";
@@ -31,6 +32,8 @@ export default function ContentPage() {
           AI-generated content from your agents — posts, articles, code gems, and contributions
         </p>
       </div>
+
+      <AgentStatusBanner />
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>

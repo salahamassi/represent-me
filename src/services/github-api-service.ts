@@ -150,13 +150,15 @@ export interface GitHubIssueResult {
 }
 
 export async function searchIssuesForSkills(
-  languages: string[] = ["swift", "dart", "typescript", "kotlin"],
-  labels: string[] = ["good first issue", "help wanted"]
+  languages: string[] = ["swift", "dart"],
+  labels: string[] = ["good first issue", "help wanted"],
+  topics: string[] = []
 ): Promise<GitHubIssueResult[]> {
   const allIssues: GitHubIssueResult[] = [];
 
+  // Search by language + label combinations
   for (const label of labels) {
-    const langQuery = languages.map((l) => `language:${l}`).join("+");
+    const langQuery = languages.map((l) => `language:${l}`).join(" ");
     const q = encodeURIComponent(`label:"${label}" ${langQuery} state:open is:issue`);
 
     const res = await fetch(
@@ -192,6 +194,124 @@ export async function searchIssuesForSkills(
         repoOwner,
         repoName,
       });
+    }
+  }
+
+  // Repo-first approach: find active mobile repos by topic, then fetch their issues.
+  // Topic filter works on repo search (not issue search), so this is the reliable way
+  // to get truly mobile-focused issues.
+  for (const topic of topics) {
+    try {
+      const repoQ = encodeURIComponent(`topic:${topic} stars:>50 pushed:>2025-06-01`);
+      const repoRes = await fetch(
+        `https://api.github.com/search/repositories?q=${repoQ}&sort=updated&order=desc&per_page=5`,
+        { headers: headers() }
+      );
+      if (!repoRes.ok) continue;
+      const repoData = await repoRes.json();
+
+      for (const repo of (repoData.items || []).slice(0, 5)) {
+        const issueQ = encodeURIComponent(`repo:${repo.full_name} label:"good first issue" state:open is:issue`);
+        const issueRes = await fetch(
+          `https://api.github.com/search/issues?q=${issueQ}&sort=created&order=desc&per_page=5`,
+          { headers: headers() }
+        );
+        if (!issueRes.ok) continue;
+        const issueData = await issueRes.json();
+
+        for (const item of issueData.items || []) {
+          const repoUrl = item.repository_url as string;
+          const parts = repoUrl.split("/");
+          allIssues.push({
+            id: item.id,
+            number: item.number,
+            title: item.title,
+            body: (item.body || "").slice(0, 3000),
+            html_url: item.html_url,
+            labels: item.labels || [],
+            repository_url: repoUrl,
+            state: item.state,
+            created_at: item.created_at,
+            comments: item.comments,
+            repoOwner: parts[parts.length - 2],
+            repoName: parts[parts.length - 1],
+          });
+        }
+      }
+    } catch { /* skip failed topic search */ }
+  }
+
+  // Deduplicate by issue URL
+  const seen = new Set<string>();
+  return allIssues.filter((i) => {
+    if (seen.has(i.html_url)) return false;
+    seen.add(i.html_url);
+    return true;
+  });
+}
+
+/**
+ * Search for open issues directly in a curated list of repos.
+ * - If `labels` is empty, fetches the most recently updated open issues
+ *   (senior triage mode — Claude decides which are actionable).
+ * - If `labels` is provided, fetches issues matching any of those labels
+ *   (one query per repo per label).
+ * Every result comes from a recruiter-recognizable project.
+ */
+export async function searchIssuesInRepos(
+  repos: { owner: string; repo: string }[],
+  labels: string[] = []
+): Promise<GitHubIssueResult[]> {
+  const allIssues: GitHubIssueResult[] = [];
+
+  // Build the list of queries to run per repo.
+  // When no labels are provided, use a single state:open query sorted by updated desc.
+  const queryBuilders: ((owner: string, repo: string) => { q: string; sort: string }) [] =
+    labels.length === 0
+      ? [
+          (owner, repo) => ({
+            q: `repo:${owner}/${repo} state:open is:issue`,
+            sort: "updated",
+          }),
+        ]
+      : labels.map((label) => (owner: string, repo: string) => ({
+          q: `repo:${owner}/${repo} label:"${label}" state:open is:issue`,
+          sort: "created",
+        }));
+
+  for (const { owner, repo } of repos) {
+    for (const buildQuery of queryBuilders) {
+      try {
+        const { q: rawQ, sort } = buildQuery(owner, repo);
+        const q = encodeURIComponent(rawQ);
+        const res = await fetch(
+          `https://api.github.com/search/issues?q=${q}&sort=${sort}&order=desc&per_page=5`,
+          { headers: headers() }
+        );
+        if (!res.ok) continue;
+        const data = await res.json();
+
+        for (const item of data.items || []) {
+          const repoUrl = item.repository_url as string;
+          const parts = repoUrl.split("/");
+          allIssues.push({
+            id: item.id,
+            number: item.number,
+            title: item.title,
+            body: (item.body || "").slice(0, 3000),
+            html_url: item.html_url,
+            labels: item.labels || [],
+            repository_url: repoUrl,
+            state: item.state,
+            created_at: item.created_at,
+            comments: item.comments,
+            repoOwner: parts[parts.length - 2],
+            repoName: parts[parts.length - 1],
+          });
+        }
+      } catch {
+        /* skip failed query, continue with next repo */
+      }
     }
   }
 
@@ -294,7 +414,13 @@ export async function fetchUserPRsInRepo(
 export async function fetchRepoTree(
   owner: string,
   repo: string,
-  branch?: string
+  branch?: string,
+  /** Optional monorepo subpath filter (e.g. "packages/form"). Applied
+   *  BEFORE the 50-file slice so a path-targeted call doesn't get
+   *  starved by alphabetically-earlier siblings inside the same repo
+   *  — without this, mining bond-core's `packages/form` returns zero
+   *  files because the global slice fills with app_analytics + cache. */
+  opts?: { pathFilter?: string }
 ): Promise<{ path: string; type: string; size?: number }[]> {
   try {
     const ref = branch || "HEAD";
@@ -306,6 +432,9 @@ export async function fetchRepoTree(
     const data = await res.json();
 
     const sourceExtensions = [".swift", ".dart", ".ts", ".tsx", ".kt", ".java", ".rb"];
+    const pathPrefix = opts?.pathFilter
+      ? opts.pathFilter.replace(/\/+$/, "") + "/"
+      : "";
     return (data.tree || [])
       .filter((item: { path: string; type: string }) => {
         if (item.type !== "blob") return false;
@@ -316,6 +445,9 @@ export async function fetchRepoTree(
         const p = item.path.toLowerCase();
         return !p.includes("test") && !p.includes("mock") && !p.includes("generated") && !p.includes("node_modules") && !p.includes(".build");
       })
+      .filter((item: { path: string }) =>
+        pathPrefix ? item.path.startsWith(pathPrefix) : true
+      )
       .slice(0, 50);
   } catch {
     return [];

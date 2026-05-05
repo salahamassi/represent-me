@@ -12,14 +12,18 @@ import {
   markRunNotified,
   updateJobAction,
   updateContentAction,
+  getContentById,
 } from "./db";
 import * as telegram from "./telegram";
+import { publishContentRow } from "@/services/zernio-service";
+import { formatSlotHuman } from "./posting-schedule";
 import { getAgentBus } from "@/agents/base/agent-bus";
 import { JobMatcherAIAgent } from "@/agents/ai/job-matcher-ai-agent";
 import { ResumeAIAgent } from "@/agents/ai/resume-ai-agent";
 import { ContentAIAgent } from "@/agents/ai/content-ai-agent";
 import { GitHubAIAgent } from "@/agents/ai/github-ai-agent";
 import { LinkedInAIAgent } from "@/agents/ai/linkedin-ai-agent";
+import { BureaucratAIAgent } from "@/agents/ai/bureaucrat-ai-agent";
 import type { AIAgent } from "@/agents/base/ai-agent";
 
 const activeTasks: Map<string, ReturnType<typeof cron.schedule>> = new Map();
@@ -44,6 +48,9 @@ export function startScheduler() {
     aiAgents.set("content", new ContentAIAgent(bus));
     aiAgents.set("github", new GitHubAIAgent(bus));
     aiAgents.set("linkedin", new LinkedInAIAgent(bus));
+    // Bureaucrat subscribes to `job:high-fit` in its constructor; it
+    // runs entirely event-driven so we instantiate but never schedule.
+    aiAgents.set("bureaucrat", new BureaucratAIAgent(bus));
   } else {
     console.log("[Scheduler] Static mode — no API key, using rule-based agents");
   }
@@ -276,7 +283,7 @@ async function processTelegramCallbacks() {
         break;
       case "content_approve":
         updateContentAction(parseInt(cb.id), "approved");
-        await telegram.sendMessage("Post approved! Go post it on LinkedIn.");
+        await autoPostToLinkedIn(parseInt(cb.id), "Post");
         break;
       case "content_reject":
         updateContentAction(parseInt(cb.id), "rejected");
@@ -302,13 +309,48 @@ async function processTelegramCallbacks() {
       // --- Code Gems callbacks ---
       case "gem_approve":
         updateContentAction(parseInt(cb.id), "approved");
-        await telegram.sendMessage("Code gem post approved! Go publish it.");
+        await autoPostToLinkedIn(parseInt(cb.id), "Code gem");
         break;
       case "gem_reject":
         updateContentAction(parseInt(cb.id), "rejected");
         break;
     }
   }
+}
+
+/**
+ * Telegram-approve handler: publish via Zernio and message the user with the
+ * result. On success the row is flipped to `published` (inside
+ * publishContentRow); on failure it stays `approved` and we ship the post
+ * text back to Telegram so the user can paste manually.
+ */
+async function autoPostToLinkedIn(
+  contentId: number,
+  label: "Post" | "Code gem"
+): Promise<void> {
+  const result = await publishContentRow(contentId);
+
+  if (result.ok) {
+    if (result.scheduledAt) {
+      const when = formatSlotHuman(new Date(result.scheduledAt));
+      await telegram.sendMessage(
+        `📅 ${label} scheduled for LinkedIn at ${when}.\n\nSet to hit peak engagement — we can "post now anyway" from the web UI if you want to override.`
+      );
+    } else {
+      const urlLine = result.url ? `\n${result.url}` : "";
+      await telegram.sendMessage(`✅ ${label} published on LinkedIn!${urlLine}`);
+    }
+    return;
+  }
+
+  // Fallback: include the post text so the user can paste manually. Cap to
+  // stay under Telegram's 4096-char limit.
+  const content = getContentById(contentId);
+  const body = content?.generated_text || "";
+  const trimmed = body.length > 3500 ? body.slice(0, 3500) + "…" : body;
+  await telegram.sendMessage(
+    `⚠️ Auto-post failed: ${result.error || "unknown error"}\n\nPaste this on LinkedIn manually:\n\n${trimmed}`
+  );
 }
 
 // Export for manual triggering from API routes

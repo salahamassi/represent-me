@@ -9,6 +9,8 @@ export const CodeGemsAnalysisSchema = z.object({
       title: z.string(),
       description: z.string(),
       codeSnippet: z.string(),
+      usageExample: z.string(),
+      realProblem: z.string(),
       whyInteresting: z.string(),
       contentAngle: z.string(),
       suggestedPlatform: z.enum(["linkedin", "medium", "devto"]),

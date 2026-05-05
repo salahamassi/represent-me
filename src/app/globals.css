@@ -10,6 +10,57 @@
   --font-sans: var(--font-sans);
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
+
+  /* --------------------------------------------------------------------
+   * War Room v2 design tokens — exposed as Tailwind utilities.
+   *
+   * Surfacing each `--wr-*` CSS var via `@theme inline` means utilities
+   * like `bg-wr-bg-2`, `text-wr-yusuf`, `border-wr-border`, and
+   * `font-ar-display` Just Work. The vars themselves (defined below in
+   * the :root + .dark blocks) flip with the rest of the app's theme.
+   *
+   * We keep the `wr-` prefix to avoid colliding with shadcn's own
+   * neutral tokens (--background, --foreground, --border) which the
+   * rest of the app — sidebar, jobs, content, etc. — depends on.
+   * ------------------------------------------------------------------ */
+
+  /* Surfaces */
+  --color-wr-bg: var(--wr-bg);
+  --color-wr-bg-2: var(--wr-bg-2);
+  --color-wr-bg-deep: var(--wr-bg-deep);
+  --color-wr-panel: var(--wr-panel);
+  --color-wr-panel-2: var(--wr-panel-2);
+
+  /* Borders + grid */
+  --color-wr-border: var(--wr-border);
+  --color-wr-border-strong: var(--wr-border-strong);
+  --color-wr-grid-line: var(--wr-grid-line);
+
+  /* Foreground tiers */
+  --color-wr-fg: var(--wr-fg);
+  --color-wr-fg-dim: var(--wr-fg-dim);
+  --color-wr-fg-faint: var(--wr-fg-faint);
+
+  /* Personas — used as accent colour everywhere their desk shows up */
+  --color-wr-yusuf: var(--wr-yusuf);
+  --color-wr-rashid: var(--wr-rashid);
+  --color-wr-layla: var(--wr-layla);
+  --color-wr-kareem: var(--wr-kareem);
+  --color-wr-tariq: var(--wr-tariq);
+  --color-wr-ghada: var(--wr-ghada);
+  --color-wr-system: var(--wr-system);
+
+  /* Ambient gradient stops — used by the floor-plan radial backdrop */
+  --color-wr-ambient-1: var(--wr-ambient-1);
+  --color-wr-ambient-2: var(--wr-ambient-2);
+
+  /* Typography stack — Inter UI, JetBrains mono labels, Reem Kufi for
+   * Arabic display, Amiri for Arabic body. Each var is bound from
+   * next/font in layout.tsx. */
+  --font-wr-ui: var(--font-inter), system-ui, sans-serif;
+  --font-wr-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
+  --font-ar-display: var(--font-reem-kufi), 'Reem Kufi', 'Amiri', serif;
+  --font-ar-body: var(--font-amiri), 'Amiri', 'Noto Naskh Arabic', serif;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -81,6 +132,38 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+
+  /* War Room v2 — light theme.
+   * Surface tokens leaning toward off-white; persona colours darkened
+   * (lower L, higher C) so coloured names + chips stay legible against
+   * pale backgrounds. Values copied verbatim from
+   * design_handoff_war_room/design_files/styles.css [data-theme="light"]. */
+  --wr-bg: oklch(0.97 0.006 260);
+  --wr-bg-2: oklch(0.94 0.008 260);
+  --wr-bg-deep: oklch(0.9 0.01 260);
+  --wr-panel: oklch(1 0 0 / 0.85);
+  --wr-panel-2: oklch(0.98 0.005 260 / 0.95);
+  --wr-border: oklch(0.25 0.01 260 / 0.12);
+  --wr-border-strong: oklch(0.25 0.01 260 / 0.28);
+  --wr-fg: oklch(0.18 0.015 260);
+  --wr-fg-dim: oklch(0.35 0.018 260);
+  --wr-fg-faint: oklch(0.5 0.018 260);
+  --wr-grid-line: oklch(0.25 0.01 260 / 0.07);
+
+  /* Personas — darkened for contrast on light surfaces. */
+  --wr-yusuf: oklch(0.38 0.22 290);
+  --wr-rashid: oklch(0.38 0.18 230);
+  --wr-layla: oklch(0.4 0.22 10);
+  --wr-kareem: oklch(0.42 0.16 70);
+  --wr-tariq: oklch(0.42 0.22 25);
+  /* Ghada — electric violet/fuchsia, distinct hue from Yusuf's
+   * indigo so the two don't blur together visually. */
+  --wr-ghada: oklch(0.4 0.28 320);
+  --wr-system: oklch(0.45 0.02 260);
+
+  /* Ambient gradient — pale washes that tint the floor backdrop. */
+  --wr-ambient-1: oklch(0.88 0.06 290 / 0.35);
+  --wr-ambient-2: oklch(0.92 0.08 25 / 0.25);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -117,6 +200,36 @@
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
   }
+}
+
+/* Dark-theme override for War Room tokens — defined first so the
+ * shadcn block below stays minimally rewritten. Values from
+ * design_handoff_war_room/design_files/styles.css :root /
+ * [data-theme="dark"] block. */
+.dark {
+  --wr-bg: oklch(0.14 0.02 260);
+  --wr-bg-2: oklch(0.18 0.025 260);
+  --wr-bg-deep: oklch(0.09 0.015 260);
+  --wr-panel: oklch(0.22 0.02 260 / 0.5);
+  --wr-panel-2: oklch(0.1 0.02 260 / 0.7);
+  --wr-border: oklch(1 0 0 / 0.08);
+  --wr-border-strong: oklch(1 0 0 / 0.18);
+  --wr-fg: oklch(0.98 0.005 260);
+  --wr-fg-dim: oklch(0.7 0.015 260);
+  --wr-fg-faint: oklch(0.5 0.02 260);
+  --wr-grid-line: oklch(1 0 0 / 0.025);
+
+  /* Personas — bright neon variants that glow against the dark BG. */
+  --wr-yusuf: oklch(0.65 0.2 290);
+  --wr-rashid: oklch(0.72 0.16 230);
+  --wr-layla: oklch(0.7 0.18 10);
+  --wr-kareem: oklch(0.78 0.15 75);
+  --wr-tariq: oklch(0.65 0.22 25);
+  --wr-ghada: oklch(0.65 0.32 320);
+  --wr-system: oklch(0.6 0.02 260);
+
+  --wr-ambient-1: oklch(0.3 0.12 290 / 0.18);
+  --wr-ambient-2: oklch(0.3 0.14 25 / 0.12);
 }
 
 .dark {
@@ -158,4 +271,93 @@
   html {
     @apply font-sans;
   }
+}
+
+/* --------------------------------------------------------------------
+ * War Room v2 — keyframes + helper classes
+ *
+ * The breathe / blink / expandIn / scan animations are part of the
+ * design language, not polish — they carry the "inhabited office"
+ * feeling on the floor plan. Each keyframe is exposed as a Tailwind
+ * `animate-wr-*` utility via the @theme inline block below.
+ *
+ * Helper classes are kept short and prefixed (`wr-` or `ar-`) so they
+ * don't collide with anything shadcn already defines. They're escape
+ * hatches for the few places where a single CSS prop is more readable
+ * than a long Tailwind utility chain (e.g. ambient gradient backdrop).
+ * ------------------------------------------------------------------ */
+
+@keyframes wr-breathe {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50%      { opacity: 1;    transform: scale(1.04); }
+}
+@keyframes wr-blink {
+  50% { opacity: 0.2; }
+}
+@keyframes wr-expand-in {
+  0%   { opacity: 0; transform: scale(0.85) translateY(12px); }
+  100% { opacity: 1; transform: scale(1)    translateY(0); }
+}
+@keyframes wr-scan {
+  0%   { transform: translateY(-100%); }
+  100% { transform: translateY(100%); }
+}
+
+@theme inline {
+  /* Surface keyframes as Tailwind animation utilities so consumers can
+   * write `animate-wr-breathe` rather than ad-hoc inline styles. The
+   * timings match the handoff spec exactly. */
+  --animate-wr-breathe: wr-breathe 1.5s ease-in-out infinite;
+  --animate-wr-blink: wr-blink 1.2s linear infinite;
+  --animate-wr-expand-in: wr-expand-in 400ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  --animate-wr-scan: wr-scan 3s linear infinite;
+}
+
+/* Mono label — the floor-plan corner labels, dept tags, and packet
+ * text are all uppercase JetBrains Mono with wide tracking. Defined
+ * here so individual components don't repeat the recipe. */
+.wr-mono {
+  font-family: var(--font-wr-mono);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+/* Arabic display — calligraphic, modern (Reem Kufi). Used for the
+ * giant "يوسف" in Yusuf Brief and the persona headlines on workbenches.
+ * line-height pulled tight (0.9) because Reem Kufi's natural metrics
+ * leave too much air for headline use. */
+.ar-display {
+  font-family: var(--font-ar-display);
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 0.9;
+}
+.ar-body {
+  font-family: var(--font-ar-body);
+  font-weight: 700;
+}
+
+/* Ambient gradient backdrop for the floor plan / hero surfaces. Uses
+ * the two `--wr-ambient-*` tokens so it adapts on theme switch. */
+.wr-bg-ambient {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 80% 60% at 20% 0%, var(--wr-ambient-1), transparent 60%),
+    radial-gradient(ellipse 60% 50% at 80% 100%, var(--wr-ambient-2), transparent 60%);
+}
+
+/* Slim scrollbar — used on the chat-drawer messages area and Radio
+ * Chatter so the scroll affordance doesn't dominate the dense layout. */
+.wr-scrollbar-slim::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.wr-scrollbar-slim::-webkit-scrollbar-thumb {
+  background: var(--wr-border-strong);
+  border-radius: 3px;
+}
+.wr-scrollbar-slim::-webkit-scrollbar-track {
+  background: transparent;
 }

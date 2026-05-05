@@ -36,9 +36,35 @@ yarn-error.log*
 # vercel
 .vercel
 
-# local database
+# local database — broader pattern catches SQLite WAL/SHM auxiliary
+# files (`.db-wal`, `.db-shm`) AND timestamped backups (`.db.bak-…`,
+# `.db.bak-…-wal`, `.db.bak-…-shm`). Original `/data/*.db` rule only
+# matched the canonical filename and let the auxiliaries leak.
 /data/*.db
+/data/*.db-*
+/data/*.db.bak*
+/data/*.bak*
+
+# generated carousels
+/data/carousels/
+
+# generated personal artifacts — kept local only, never committed.
+# Tailored CV PDFs (each contains the candidate's full real CV: name,
+# phone, email, work history) and the auto-generated content cards
+# Layla / BondInfographic write to public/. The personal headshot is
+# also kept out of the public repo.
+/data/resumes/
+/public/infographics/
+/public/wr-visuals/
+# Personal headshot — referenced by profile.ts but kept out of the public repo.
+salah-avatar.*
 
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Defensive — any SQLite WAL/SHM/backup variant should never reach the repo.
+/data/**/*.wal
+/data/**/*.shm
+/data/**/*-wal
+/data/**/*-shm

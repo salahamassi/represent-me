@@ -1,0 +1,117 @@
+/* War Room v2 — Glass-Dark + Light mode via [data-theme] */
+:root,
+[data-theme="dark"] {
+  --bg: oklch(0.14 0.02 260);
+  --bg-2: oklch(0.18 0.025 260);
+  --bg-deep: oklch(0.09 0.015 260);
+  --panel: oklch(0.22 0.02 260 / 0.5);
+  --panel-2: oklch(0.1 0.02 260 / 0.7);
+  --border: oklch(1 0 0 / 0.08);
+  --border-strong: oklch(1 0 0 / 0.18);
+  --fg: oklch(0.98 0.005 260);
+  --fg-dim: oklch(0.7 0.015 260);
+  --fg-faint: oklch(0.5 0.02 260);
+  --grid-line: oklch(1 0 0 / 0.025);
+
+  /* Persona palette (same hues, both themes) */
+  --rashid: oklch(0.72 0.16 230);
+  --layla: oklch(0.7 0.18 10);
+  --kareem: oklch(0.78 0.15 75);
+  --yusuf: oklch(0.65 0.2 290);
+  --tariq: oklch(0.65 0.22 25);
+  --system: oklch(0.6 0.02 260);
+
+  --ambient-1: oklch(0.3 0.12 290 / 0.18);
+  --ambient-2: oklch(0.3 0.14 25 / 0.12);
+
+  --font-ar-display: 'Reem Kufi', 'Amiri', serif;
+  --font-ar-body: 'Amiri', 'Noto Naskh Arabic', serif;
+  --font-ui: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  --radius: 14px;
+  --radius-sm: 8px;
+}
+
+[data-theme="light"] {
+  --bg: oklch(0.97 0.006 260);
+  --bg-2: oklch(0.94 0.008 260);
+  --bg-deep: oklch(0.9 0.01 260);
+  --panel: oklch(1 0 0 / 0.85);
+  --panel-2: oklch(0.98 0.005 260 / 0.95);
+  --border: oklch(0.25 0.01 260 / 0.12);
+  --border-strong: oklch(0.25 0.01 260 / 0.28);
+  --fg: oklch(0.18 0.015 260);
+  --fg-dim: oklch(0.35 0.018 260);
+  --fg-faint: oklch(0.5 0.018 260);
+  --grid-line: oklch(0.25 0.01 260 / 0.07);
+
+  /* Darkened persona colors for contrast on light banners/panels */
+  --rashid: oklch(0.38 0.18 230);
+  --layla: oklch(0.4 0.22 10);
+  --kareem: oklch(0.42 0.16 70);
+  --yusuf: oklch(0.38 0.22 290);
+  --tariq: oklch(0.42 0.22 25);
+
+  --ambient-1: oklch(0.88 0.06 290 / 0.35);
+  --ambient-2: oklch(0.92 0.08 25 / 0.25);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+  transition: background 0.3s;
+}
+
+.bg-ambient {
+  position: fixed; inset: 0;
+  background:
+    radial-gradient(ellipse 80% 60% at 20% 0%, var(--ambient-1), transparent 60%),
+    radial-gradient(ellipse 60% 50% at 80% 100%, var(--ambient-2), transparent 60%),
+    var(--bg);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.mono { font-family: var(--font-mono); }
+
+/* Arabic display — calligraphic, modern (Reem Kufi) */
+.ar-display {
+  font-family: var(--font-ar-display);
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 0.9;
+}
+.ar-body {
+  font-family: var(--font-ar-body);
+  font-weight: 700;
+}
+
+@keyframes breathe {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.04); }
+}
+@keyframes blink { 50% { opacity: 0.2; } }
+@keyframes scan {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100%); }
+}
+@keyframes expandIn {
+  0% { opacity: 0; transform: scale(0.85) translateY(12px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.scrollbar-slim::-webkit-scrollbar { width: 6px; height: 6px; }
+.scrollbar-slim::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+.scrollbar-slim::-webkit-scrollbar-track { background: transparent; }
+
+.avatar {
+  object-fit: cover;
+  border-radius: 50%;
+  background: var(--bg-deep);
+}

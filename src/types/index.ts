@@ -66,6 +66,18 @@ export interface Experience {
   description: string;
   highlights: string[];
   technologies: string[];
+  /**
+   * Work arrangement. Informs the dashboard UI so it can tag ongoing
+   * contract/freelance roles differently from a single full-time job.
+   * Undefined = full-time (implicit default).
+   */
+  employmentType?: "full-time" | "contract" | "part-time" | "freelance";
+}
+
+/** Single headline achievement surfaced at the top of the profile. */
+export interface KeyAchievement {
+  title: string;
+  description: string;
 }
 
 export interface Education {
@@ -94,6 +106,8 @@ export interface ProfileData {
   email: string;
   phone: string;
   summary: string;
+  /** Public path to the headshot (e.g. "/salah-avatar.jpg"). */
+  avatar?: string;
   links: {
     github: string;
     linkedin: string;
@@ -102,6 +116,17 @@ export interface ProfileData {
     stackoverflow: string;
     pubdev: string;
   };
+  /**
+   * 3-5 quantified headline wins for the top of the resume/dashboard.
+   * Mirrors the "Key Achievements" section of the source CV PDF.
+   */
+  keyAchievements?: KeyAchievement[];
+  /**
+   * Free-form paragraphs describing how AI is integrated across personal
+   * projects and production work. Mirrors "AI Integration Highlights" on
+   * the CV and differentiates this profile from devs who merely "use AI".
+   */
+  aiIntegrationHighlights?: string[];
   experience: Experience[];
   education: Education[];
   skills: { category: string; items: string[] }[];
@@ -209,6 +234,73 @@ export interface GeneratedContent {
   generated_text: string;
   created_at: string;
   user_action: string | null;
+  user_tips: string | null;
+  /** 1-10, null if not yet scored by Claude. */
+  score: number | null;
+  /** "clear" | "needs-sharpening" | "mysterious", null if not scored. */
+  score_verdict: string | null;
+  /** One-line human-readable summary of the verdict. */
+  score_one_liner: string | null;
+  /** JSON-encoded `string[]` — actionable tips; parsed on the client. */
+  score_tips: string | null;
+  /** ISO timestamp of the latest score, null if not scored. */
+  scored_at: string | null;
+  /** Public LinkedIn URL set by Zernio after a successful auto-post; null otherwise. */
+  linkedin_post_url: string | null;
+  /** ISO UTC timestamp when Zernio will publish a scheduled post; null for immediate/non-scheduled rows. */
+  scheduled_for: string | null;
+  /** Route path to the generated PDF carousel (e.g. `/api/content/123/carousel`).
+   *  Null until Layla runs the carousel pipeline for this row. */
+  carousel_pdf_url: string | null;
+  /** Validated `CarouselDeck` JSON-encoded — kept so re-renders don't
+   *  re-prompt Claude. Null when no carousel has been generated. */
+  carousel_deck_json: string | null;
+  /** Resolved brand id (e.g. `"bond"`, `"default"`) used at render time;
+   *  surfaced so future per-brand UI affordances can key off it. */
+  carousel_brand_id: string | null;
+  /** Phase 7 — narrative-only rewrite of the post body that sits
+   *  alongside the carousel PDF on LinkedIn. Null until a carousel
+   *  has been generated for this row. The card defaults to showing
+   *  this when present; the publish flow prefers it too. */
+  carousel_post_text: string | null;
+}
+
+/**
+ * Parsed score payload rendered by the Score panel in the Content card.
+ * Mirrors ContentScoreSchema in src/agents/schemas/content-score.schema.ts.
+ */
+export interface ContentScore {
+  score: number;
+  verdict: "clear" | "needs-sharpening" | "mysterious";
+  oneLineVerdict: string;
+  tips: string[];
+  scoredAt: string;
+}
+
+/** A single turn in the chat-style refinement panel. */
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+/**
+ * What Claude saw when generating a piece of content. Surfaced in the UI so
+ * the user knows the basis for the draft and can steer the rewrite.
+ */
+export interface ContentSourceContext {
+  repoName: string | null;
+  repoContext: string;
+  gem: {
+    title: string;
+    description: string;
+    gemType: string;
+    filePath: string | null;
+    codeSnippet: string | null;
+    usageExample: string | null;
+    realProblem: string | null;
+    whyInteresting: string | null;
+    contentAngle: string | null;
+  } | null;
 }
 
 export interface SeenJob {

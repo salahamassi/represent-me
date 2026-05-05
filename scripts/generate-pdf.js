@@ -37,16 +37,32 @@ doc.pipe(stream);
 const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
 
 // --- Header ---
+// Name (large, dark) + tailored title (medium, dark) so ATS parsers
+// recognise the role title under the candidate's name. Previously the
+// title rendered in light green at 11pt — Enhancv flagged "Add Title"
+// because the heuristic couldn't see it.
 doc.font("Helvetica-Bold").fontSize(22).fillColor(PRIMARY).text(profile.name, { align: "center" });
-doc.font("Helvetica").fontSize(11).fillColor(ACCENT).text(resume.targetRole || jobTitle, { align: "center" });
+doc.font("Helvetica").fontSize(13).fillColor(PRIMARY).text(resume.targetRole || jobTitle, { align: "center" });
 doc.moveDown(0.3);
 
-const contactParts = [profile.email, profile.phone, profile.location].filter(Boolean);
+// Line 1: email · phone · location (muted, no links).
+const contactLine1 = [profile.email, profile.phone, profile.location].filter(Boolean).join("  |  ");
+doc.font("Helvetica").fontSize(8).fillColor(MUTED).text(contactLine1, { align: "center" });
+
+// Line 2: github + linkedin URLs as PROPER PDF link annotations so ATS
+// parsers detect them. pdfkit only accepts one `link:` per text() call
+// — render each URL on its own centered line. Text is muted blue to
+// signal "link" without screaming.
 if (profile.links) {
-  if (profile.links.github) contactParts.push(profile.links.github);
-  if (profile.links.linkedin) contactParts.push(profile.links.linkedin);
+  if (profile.links.github) {
+    doc.font("Helvetica").fontSize(8).fillColor(ACCENT)
+      .text(profile.links.github, { align: "center", link: profile.links.github, underline: false });
+  }
+  if (profile.links.linkedin) {
+    doc.font("Helvetica").fontSize(8).fillColor(ACCENT)
+      .text(profile.links.linkedin, { align: "center", link: profile.links.linkedin, underline: false });
+  }
 }
-doc.fontSize(8).fillColor(MUTED).text(contactParts.join("  |  "), { align: "center" });
 drawDivider();
 
 // --- Summary ---
@@ -59,8 +75,16 @@ sectionTitle("EXPERIENCE");
 const entries = Array.isArray(resume.experienceEntries) ? resume.experienceEntries : [];
 for (const entry of entries) {
   checkPageBreak(80);
+  // Append (Contract) / (Freelance) / (Part-time) when employmentType is
+  // set and not full-time. Mirrors generate-profile-pdf.js so tailored
+  // resumes carry the same context — important for short stints (e.g.
+  // a 4-month contract) so recruiters don't read them as job-hopping.
+  const titleSuffix =
+    entry.employmentType && entry.employmentType !== "full-time"
+      ? ` (${entry.employmentType})`
+      : "";
   doc.font("Helvetica-Bold").fontSize(10).fillColor(PRIMARY)
-    .text(`${entry.title || ""} — ${entry.company || ""}`, { continued: false });
+    .text(`${entry.title || ""}${titleSuffix} — ${entry.company || ""}`, { continued: false });
   if (entry.period) {
     doc.font("Helvetica").fontSize(8).fillColor(MUTED).text(entry.period);
   }
@@ -99,6 +123,41 @@ if (projects.length > 0) {
     checkPageBreak(20);
     doc.font("Helvetica-Bold").fontSize(9).fillColor(PRIMARY).text(p.name || "", { continued: true });
     doc.font("Helvetica").fillColor(TEXT).text(`  —  ${p.description || ""}`);
+    // v3 — Render the public URL on the next line in muted italic
+    // when present. pdfkit's `link` option makes the URL clickable.
+    if (p.url) {
+      doc
+        .font("Helvetica-Oblique")
+        .fontSize(8)
+        .fillColor(MUTED)
+        .text(p.url, { link: p.url, underline: false });
+    }
+  }
+  drawDivider();
+}
+
+// --- Publications ---
+// v4 — Tag-matched articles (iOS for iOS roles, Flutter for Flutter
+// roles, etc). Kareem fills `resume.publications` from medium-data.ts;
+// when nothing matches the role he leaves it empty and we skip the section.
+const publications = Array.isArray(resume.publications) ? resume.publications : [];
+if (publications.length > 0) {
+  sectionTitle("PUBLICATIONS");
+  for (const pub of publications) {
+    checkPageBreak(20);
+    doc.font("Helvetica-Bold").fontSize(9).fillColor(PRIMARY).text(pub.title || "", { continued: true });
+    if (pub.date) {
+      doc.font("Helvetica").fontSize(8).fillColor(MUTED).text(`  —  ${pub.date}`);
+    } else {
+      doc.font("Helvetica").text("");
+    }
+    if (pub.url) {
+      doc
+        .font("Helvetica-Oblique")
+        .fontSize(8)
+        .fillColor(MUTED)
+        .text(pub.url, { link: pub.url, underline: false });
+    }
   }
   drawDivider();
 }

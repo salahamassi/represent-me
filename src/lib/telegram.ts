@@ -318,6 +318,34 @@ export async function sendPRUpdate(
   );
 }
 
+/**
+ * Send the auto-generated carousel PDF as a Telegram document so the
+ * user gets a phone-readable preview of the deck alongside the post
+ * draft. Fires from the cron mining loop right BEFORE
+ * `sendCodeGemDraft` so the chat order reads: PDF (visual) → post
+ * text + approve/reject buttons (action).
+ *
+ * Caption is intentionally brief — the document carries the content.
+ * No inline keyboard here: the approve/reject buttons live on the
+ * subsequent post-draft message so a single tap covers the row.
+ */
+export async function sendCarouselPreview(
+  gem: { title: string; repoName: string },
+  pdfPath: string,
+  contentId: number,
+  slideCount: number,
+  brandId?: string | null
+): Promise<boolean> {
+  const caption = [
+    `🎨 <b>Carousel preview</b>`,
+    `<i>${gem.title}</i>`,
+    `${gem.repoName} · ${slideCount} slides${brandId ? ` · brand: ${brandId}` : ""}`,
+    ``,
+    `<i>Content #${contentId}. Approve below ↓</i>`,
+  ].join("\n");
+  return sendDocument(pdfPath, caption);
+}
+
 export async function sendCodeGemDraft(
   gem: { title: string; repoName: string; gemType: string },
   draft: string,
