@@ -431,7 +431,11 @@
       "Bash(git commit -m ' *)",
       "Bash(gh repo *)",
       "Bash(git reset *)",
-      "Bash(xargs -I{} git reset HEAD {})"
+      "Bash(xargs -I{} git reset HEAD {})",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/api/manual-lead)",
+      "Bash(cd /Users/salahamassi/Documents/salah/represent-me && npx tsx .claude/worktrees/kind-perlman-befc9d/scripts/render-airapps.ts 2>&1)",
+      "Bash(gh pr *)",
+      "Bash(git ls-remote *)"
     ]
   }
 }
